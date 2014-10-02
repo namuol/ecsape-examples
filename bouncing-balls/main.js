@@ -175,7 +175,8 @@ RenderSystem.prototype.init = function (world) {
 
 RenderSystem.prototype.render = function () {
   RenderSystem.super_.call(this);
-  this.context.clearRect(0,0, this.canvas.width, this.canvas.height);
+  this.context.fillStyle = 'black';
+  this.context.fillRect(0,0, this.canvas.width, this.canvas.height);
   var context = this.context;
   this.entities.each(function (entity) {
     context.fillStyle = entity.color.string;
