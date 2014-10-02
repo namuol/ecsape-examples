@@ -7,5 +7,6 @@ $(EXAMPLES):
 
 clean:
 	rm -rf */bundle.js
+	rm -rf */bundle.js.map
 
 .PHONY: $(EXAMPLES) clean
