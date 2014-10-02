@@ -1,0 +1,19 @@
+{
+  "name": "ecsape-examples",
+  "version": "0.0.0",
+  "description": "examples for ecsape",
+  "main": "src/main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "color": "^0.7.1",
+    "ecsape": "^0.1.1"
+  },
+  "devDependencies": {
+    "browserify": "^5.12.1",
+    "exorcist": "^0.1.6"
+  }
+}
