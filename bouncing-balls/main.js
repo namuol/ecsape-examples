@@ -189,7 +189,6 @@ RenderSystem.prototype.render = function () {
 
 
 // Add some entities
-
 for (i = 0; i < 20; i += 1) {
   ball = world.add(new ECS.Entity());
   
@@ -222,6 +221,7 @@ world.addSystem(new RenderSystem(canvas));
 window.world = world;
 
 function animate() {
+  world.flush();
   world.invoke('update', 1/60);
   world.invoke('render');
 

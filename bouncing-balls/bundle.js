@@ -190,7 +190,6 @@ RenderSystem.prototype.render = function () {
 
 
 // Add some entities
-
 for (i = 0; i < 20; i += 1) {
   ball = world.add(new ECS.Entity());
   
@@ -223,6 +222,7 @@ world.addSystem(new RenderSystem(canvas));
 window.world = world;
 
 function animate() {
+  world.flush();
   world.invoke('update', 1/60);
   world.invoke('render');
 
@@ -566,6 +566,8 @@ var process = module.exports = {};
 process.nextTick = (function () {
     var canSetImmediate = typeof window !== 'undefined'
     && window.setImmediate;
+    var canMutationObserver = typeof window !== 'undefined'
+    && window.MutationObserver;
     var canPost = typeof window !== 'undefined'
     && window.postMessage && window.addEventListener
     ;
@@ -574,8 +576,29 @@ process.nextTick = (function () {
         return function (f) { return window.setImmediate(f) };
     }
 
+    var queue = [];
+
+    if (canMutationObserver) {
+        var hiddenDiv = document.createElement("div");
+        var observer = new MutationObserver(function () {
+            var queueList = queue.slice();
+            queue.length = 0;
+            queueList.forEach(function (fn) {
+                fn();
+            });
+        });
+
+        observer.observe(hiddenDiv, { attributes: true });
+
+        return function nextTick(fn) {
+            if (!queue.length) {
+                hiddenDiv.setAttribute('yes', 'no');
+            }
+            queue.push(fn);
+        };
+    }
+
     if (canPost) {
-        var queue = [];
         window.addEventListener('message', function (ev) {
             var source = ev.source;
             if ((source === window || source === null) && ev.data === 'process-tick') {
@@ -615,7 +638,7 @@ process.emit = noop;
 
 process.binding = function (name) {
     throw new Error('process.binding is not supported');
-}
+};
 
 // TODO(shtylman)
 process.cwd = function () { return '/' };
@@ -2687,18 +2710,43 @@ function hexDouble(num) {
       this._components = bm();
     }
 
+    Entity.prototype.addComponents = function(components) {
+      var component, name, _i, _len;
+      for (_i = 0, _len = components.length; _i < _len; _i++) {
+        component = components[_i];
+        name = component.name;
+        this[name] = component;
+        this._components = this._components.and(bm(name));
+      }
+      return this.emit('componentsAdded', this, components);
+    };
+
+    Entity.prototype.removeComponents = function(componentNames) {
+      var components, i, name, _i, _len;
+      components = new Array(componentNames.length);
+      for (i = _i = 0, _len = componentNames.length; _i < _len; i = ++_i) {
+        name = componentNames[i];
+        components[i] = this[name];
+        delete this[name];
+        this._components = this._components.not(bm(name));
+      }
+      return this.emit('componentsRemoved', this, components);
+    };
+
     Entity.prototype.addComponent = function(component) {
       var name;
       name = component.name;
       this[name] = component;
       this._components = this._components.and(bm(name));
-      return this.emit('componentAdded', this, name);
+      return this.emit('componentsAdded', this, [component]);
     };
 
     Entity.prototype.removeComponent = function(name) {
+      var component;
+      component = this[name];
       delete this[name];
       this._components = this._components.not(bm(name));
-      return this.emit('componentRemoved', this, name);
+      return this.emit('componentsRemoved', this, [component]);
     };
 
     return Entity;
@@ -2746,33 +2794,76 @@ function hexDouble(num) {
     __extends(Family, _super);
 
     function Family(components, world) {
-      var next;
+      var entity, next;
       this.components = components;
       Family.__super__.constructor.call(this);
-      world.on('entityComponentsChanged', this._checkEntity.bind(this));
-      world.on('entityAdded', this._checkEntity.bind(this));
-      world.on('entityRemoved', this._onEntityRemoved.bind(this));
+      world.on('__entitiesChanged', this._onEntitiesChanged.bind(this));
+      world.on('__entitiesAdded', this._onEntitiesAdded.bind(this));
+      world.on('__entitiesRemoved', this._onEntitiesRemoved.bind(this));
       next = world.entities.first;
       while (next != null) {
-        this._checkEntity(next.obj);
+        entity = next.obj;
+        if (entity._components.has(this.components)) {
+          this.add(entity);
+        }
         next = next.next;
       }
+      return;
     }
 
-    Family.prototype._onEntityRemoved = function(entity) {
-      return this.remove(entity);
+    Family.prototype._onEntitiesAdded = function(entities) {
+      var entitiesAdded, entity, _i, _len;
+      entitiesAdded = [];
+      for (_i = 0, _len = entities.length; _i < _len; _i++) {
+        entity = entities[_i];
+        if (entity._components.has(this.components)) {
+          this.add(entity);
+          entitiesAdded.push(entity);
+        }
+      }
+      if (entitiesAdded.length > 0) {
+        this.emit('entitiesAdded', entitiesAdded);
+      }
     };
 
-    Family.prototype._checkEntity = function(entity) {
-      if (entity._components.has(this.components)) {
+    Family.prototype._onEntitiesRemoved = function(entities) {
+      var entitiesRemoved, entity, _i, _len;
+      entitiesRemoved = [];
+      for (_i = 0, _len = entities.length; _i < _len; _i++) {
+        entity = entities[_i];
+        if (!this.remove(entity)) {
+          continue;
+        }
+        entitiesRemoved.push(entity);
+      }
+      if (entitiesRemoved.length > 0) {
+        this.emit('entitiesRemoved', entitiesRemoved);
+      }
+    };
+
+    Family.prototype._onEntitiesChanged = function(entities) {
+      var added, entity, removed, _i, _len;
+      added = [];
+      removed = [];
+      for (_i = 0, _len = entities.length; _i < _len; _i++) {
+        entity = entities[_i];
         if (!this.contains(entity)) {
-          this.add(entity);
-          this.emit('added', entity);
+          if (entity._components.has(this.components)) {
+            this.add(entity);
+            added.push(entity);
+          }
+        } else {
+          if (!entity._components.has(this.components)) {
+            this.remove(entity);
+            removed.push(entity);
+          }
         }
-      } else {
-        if (this.remove(entity)) {
-          this.emit('removed', entity);
-        }
+      }
+      if (added.length > 0) {
+        this.emit('entitiesAdded', added);
+      }
+      if (removed.length > 0) {
+        return this.emit('entitiesRemoved', removed);
       }
     };
 
@@ -2799,17 +2890,68 @@ function hexDouble(num) {
       this.entities = new LinkedList;
       this.systems = new LinkedList;
       this._families = {};
+      this._onComponentsChanged = this._onComponentsChanged.bind(this);
+      this.__added = [];
+      this.__removed = [];
+      this.__changed = [];
     }
 
     World.prototype.add = function(entity) {
       if (this.entities.contains(entity)) {
         return entity;
       }
-      this.entities.add(entity);
-      entity.on('componentAdded', this._onComponentsChanged.bind(this));
-      entity.on('componentRemoved', this._onComponentsChanged.bind(this));
-      this.emit('entityAdded', entity);
+      this.__added.push(entity);
       return entity;
+    };
+
+    World.prototype.addAll = function(entities) {
+      var _ref1;
+      (_ref1 = this.__added).push.apply(_ref1, entities);
+    };
+
+    World.prototype.remove = function(entity) {
+      this.__removed.push(entity);
+    };
+
+    World.prototype.removeAll = function(entities) {
+      var _ref1;
+      (_ref1 = this.__removed).push.apply(_ref1, entities);
+      return entities;
+    };
+
+    World.prototype.flush = function() {
+      var entity, _i, _j, _len, _len1, _ref1, _ref2;
+      if (this.__added.length > 0) {
+        _ref1 = this.__added;
+        for (_i = 0, _len = _ref1.length; _i < _len; _i++) {
+          entity = _ref1[_i];
+          if (this.entities.contains(entity)) {
+            continue;
+          }
+          this.entities.add(entity);
+          entity.on('componentsAdded', this._onComponentsChanged);
+          entity.on('componentsRemoved', this._onComponentsChanged);
+        }
+        this.emit('__entitiesAdded', this.__added);
+        this.__added.length = 0;
+      }
+      if (this.__removed.length > 0) {
+        _ref2 = this.__removed;
+        for (_j = 0, _len1 = _ref2.length; _j < _len1; _j++) {
+          entity = _ref2[_j];
+          if (!this.entities.remove(entity)) {
+            continue;
+          }
+          entity.removeListener('componentsAdded', this._onComponentsChanged);
+          entity.removeListener('componentsRemoved', this._onComponentsChanged);
+        }
+        this.emit('__entitiesRemoved', this.__removed);
+        this.__removed.length = 0;
+      }
+      if (this.__changed.length > 0) {
+        this.emit('__entitiesChanged', this.__changed);
+        return this.__changed.length = 0;
+      }
     };
 
     World.prototype.addSystem = function(system) {
@@ -2835,24 +2977,18 @@ function hexDouble(num) {
       }
     };
 
-    World.prototype._onComponentsChanged = function(entity) {
-      return this.emit('entityComponentsChanged', entity);
-    };
-
-    World.prototype.remove = function(entity) {
-      if (!this.entities.remove(entity)) {
-        return false;
-      }
-      this.emit('entityRemoved', entity);
-      return true;
-    };
-
     World.prototype.get = function() {
-      var mask, maskKey, requiredComponents, _ref1;
-      requiredComponents = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
-      mask = World._bm.apply(World, requiredComponents);
+      var mask, maskKey, _ref1;
+      if (arguments.length === 0) {
+        return void 0;
+      }
+      mask = World._bm.apply(World, arguments);
       maskKey = mask.toString();
       return (_ref1 = this._families[maskKey]) != null ? _ref1 : (this._families[maskKey] = new Family(mask, this));
+    };
+
+    World.prototype._onComponentsChanged = function(entity) {
+      return this.__changed.push(entity);
     };
 
     return World;

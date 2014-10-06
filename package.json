@@ -10,10 +10,10 @@
   "license": "MIT",
   "dependencies": {
     "color": "^0.7.1",
-    "ecsape": "^0.1.1"
+    "ecsape": "^0.2.0"
   },
   "devDependencies": {
-    "browserify": "^5.12.1",
+    "browserify": "^6.0.2",
     "exorcist": "^0.1.6"
   }
 }
