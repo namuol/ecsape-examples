@@ -1,4 +1,4 @@
-# [ecsape](http://github.com/gitsubio/ecsape) examples
+# [ecsape](http://github.com/namuol/ecsape) examples
 
 These are barebones examples of how to use the "ecsape" Entity Component System ...system.
 
